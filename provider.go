@@ -4,6 +4,8 @@ import (
 	_ "embed"
 	"encoding/json"
 	"fmt"
+	"io"
+	"io/ioutil"
 	"net/http"
 	"net/url"
 	"strings"
@@ -13,14 +15,24 @@ import (
 var countries []byte
 
 type Provider struct {
-	Endpoint string
-	APIKey   string
+	Endpoint           string
+	APIKey             string
+	VerificationMethod string
 }
 
-func (p *Provider) makeGetRequest(url string, queryValues *url.Values) (*http.Response, error) {
+func (p *Provider) makeGetRequest(url string, queryValues *url.Values) (*Response, error) {
 	// Craft the header
-	header := map[string]string{
-		"Authorization": fmt.Sprintf("Bearer %s", p.APIKey),
+	header := map[string]string{}
+
+	switch p.VerificationMethod {
+	case "Authorization":
+		header = map[string]string{
+			"Authorization": fmt.Sprintf("Bearer %s", p.APIKey),
+		}
+	case "secret":
+		queryValues.Set("secret_key", p.APIKey)
+	case "token":
+		queryValues.Set("token", p.APIKey)
 	}
 
 	// Creates a client
@@ -28,7 +40,7 @@ func (p *Provider) makeGetRequest(url string, queryValues *url.Values) (*http.Re
 	// Creates a request
 	req, err := http.NewRequest("GET", url, nil)
 	if err != nil {
-		return &http.Response{}, err
+		return nil, err
 	}
 
 	// Incapsulate header elements into the request
@@ -38,7 +50,58 @@ func (p *Provider) makeGetRequest(url string, queryValues *url.Values) (*http.Re
 
 	// Encode the query values (if any)
 	req.URL.RawQuery = queryValues.Encode()
-	return client.Do(req)
+
+	resp, err := client.Do(req)
+
+	response := &Response{
+		RawResponse: resp,
+	}
+
+	defer func(v interface{}) {
+		if c, ok := v.(io.Closer); ok {
+			func(_ ...interface{}) {}(c.Close())
+		}
+	}(resp.Body)
+
+	body := resp.Body
+
+	if response.body, err = ioutil.ReadAll(body); err != nil {
+		return response, err
+	}
+
+	response.size = int64(len(response.body))
+
+	return response, err
+}
+
+func (p *Provider) processResponse(resp *http.Response) (*NumberDetail, error) {
+
+	// Check status code
+	if resp.StatusCode != 200 {
+		return nil, fmt.Errorf("%s", resp.Status)
+	}
+
+	// Read request body
+	r, err := ioutil.ReadAll(resp.Body)
+
+	if err != nil {
+		resp.Body.Close()
+		return nil, err
+	}
+	resp.Body.Close()
+
+	// Unmarshal the body into a struct
+	var info NumberDetail
+	err = json.Unmarshal(r, &info)
+	if err != nil {
+		return nil, err
+	}
+
+	countryCode, phone := p.GetCountry(info.Phone)
+	info.Country = countryCode
+	info.Phone = phone
+
+	return &info, nil
 }
 
 func (p *Provider) GetCountry(phone string) (conuntryCode, newPhone string) {
