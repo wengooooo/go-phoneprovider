@@ -50,8 +50,13 @@ func NewFiveSim(APIKey string) *FiveSim {
 	}
 }
 
-func (f *FiveSim) GetNumber(country, operator, name, forwardingNumber string) (*NumberDetail, error) {
+func (f *FiveSim) GetNumber(params map[string]interface{}) (ID int, countryCode, phoneNumber string, err error) {
 	// If country is empty, it will pass "any" to the service
+	country := params["country"].(string)
+	operator := params["operator"].(string)
+	forwardingNumber := params["forwardingNumber"].(string)
+	name := params["name"].(string)
+
 	if country == "" {
 		country = "any"
 	}
@@ -76,44 +81,42 @@ func (f *FiveSim) GetNumber(country, operator, name, forwardingNumber string) (*
 	)
 
 	if err != nil {
-		return nil, err
+		return 0, "", "", err
 	}
 
 	if resp.StatusCode() != 200 {
 		switch resp.String() {
 		case "bad operator":
-			return nil, errors.New("5sim: 错误的运营商代号")
+			return 0, "", "", errors.New("5sim: 错误的运营商代号")
 		case "not enough user balance":
-			return nil, errors.New("5sim: 账户余额不足")
+			return 0, "", "", errors.New("5sim: 账户余额不足")
 		case "not enough rating":
-			return nil, errors.New("5sim: 账户评级过低")
+			return 0, "", "", errors.New("5sim: 账户评级过低")
 		case "select country":
-			return nil, errors.New("5sim: 没有选择国家")
+			return 0, "", "", errors.New("5sim: 没有选择国家")
 		case "select operator":
-			return nil, errors.New("5sim: 没有选择运营商")
+			return 0, "", "", errors.New("5sim: 没有选择运营商")
 		case "bad country":
-			return nil, errors.New("5sim: 国家无效")
+			return 0, "", "", errors.New("5sim: 国家无效")
 		case "no product":
-			return nil, errors.New(fmt.Sprintf("5sim: 没有%s的项目", name))
+			return 0, "", "", errors.New(fmt.Sprintf("5sim: 没有%s的项目", name))
 		case "no server offline":
-			return nil, errors.New("5sim: 服务器已下线")
+			return 0, "", "", errors.New("5sim: 服务器已下线")
 		}
 	}
 
 	var info NumberDetail
 	err = json.Unmarshal(resp.Body(), &info)
 	if err != nil {
-		return nil, err
+		return 0, "", "", err
 	}
 
-	countryCode, phone := f.GetCountry(info.Phone)
-	info.CountryCode = countryCode
-	info.Phone = phone
+	countryCode, phoneNumber = f.GetCountry(info.Phone)
 
-	return &info, nil
+	return info.ID, countryCode, phoneNumber, nil
 }
 
-func (f *FiveSim) GetSms(orderID int) (*SMSDetail, error) {
+func (f *FiveSim) GetSms(orderID int) (code string, err error) {
 	// Make request
 	resp, err := f.makeGetRequest(
 		fmt.Sprintf("%s/user/check/%d",
@@ -123,26 +126,35 @@ func (f *FiveSim) GetSms(orderID int) (*SMSDetail, error) {
 	)
 
 	if err != nil {
-		return nil, err
+		return "", err
 	}
 
 	// Check status code
 	if resp.StatusCode() != 200 {
-		return nil, fmt.Errorf("%s", resp.Status)
+		return "", fmt.Errorf("%s", resp.Status)
 	}
 
 	var info NumberDetail
 	err = json.Unmarshal(resp.Body(), &info)
 	fmt.Println(resp.String())
 	if err != nil {
-		return nil, err
+		return "", err
 	}
 
-	var smsDetail SMSDetail
 	if len(info.SMS) > 0 {
-		smsDetail = info.SMS[0]
+		code = info.SMS[0].Code
 	}
 
-	return &smsDetail, nil
+	return code, nil
 
+}
+
+func (f *FiveSim) ReleaseNumber(ID interface{}) (err error) {
+	// Make request
+	_, err = f.makeGetRequest(
+		fmt.Sprintf("%s/cancel/%d", f.Endpoint, ID),
+		&url.Values{},
+	)
+
+	return nil
 }

@@ -45,8 +45,12 @@ func NewSuperSms(APIKey string) *SuperSms {
 	}
 }
 
-func (f *SuperSms) GetNumber(channel, country, pid string) (*SuperSmsNumberDetail, error) {
+func (f *SuperSms) GetNumber(params map[string]interface{}) (ID int, countryCode, phoneNumber string, err error) {
 	// Check if any additional query values could be encapsulated
+	channel := params["channel"].(string)
+	country := params["country"].(string)
+	pid := params["pid"].(string)
+
 	queryValues := url.Values{}
 
 	queryValues.Add("channel", channel)
@@ -59,27 +63,25 @@ func (f *SuperSms) GetNumber(channel, country, pid string) (*SuperSmsNumberDetai
 	)
 
 	if err != nil {
-		return nil, err
+		return 0, "", "", err
 	}
 
 	var info SuperSmsNumberDetail
 	err = json.Unmarshal(resp.Body(), &info)
 	if err != nil {
-		return nil, err
+		return 0, "", "", err
 	}
 
 	if info.Message != "" {
-		return nil, errors.New(resp.String())
+		return 0, "", "", errors.New(resp.String())
 	}
 
-	countryCode, phone := f.GetCountry(info.Phone)
-	info.CountryCode = countryCode
-	info.Phone = phone
+	countryCode, phoneNumber = f.GetCountry(info.Phone)
 
-	return &info, nil
+	return info.ID, countryCode, phoneNumber, nil
 }
 
-func (f *SuperSms) GetSms(ID int) (*SuperSmsSMSDetail, error) {
+func (f *SuperSms) GetSms(ID int) (code string, err error) {
 	// Make request
 	queryValues := url.Values{}
 	queryValues.Add("taskid", strconv.Itoa(ID))
@@ -91,21 +93,38 @@ func (f *SuperSms) GetSms(ID int) (*SuperSmsSMSDetail, error) {
 	)
 
 	if err != nil {
-		return nil, err
+		return "", err
 	}
 
 	// Check status code
 	if resp.StatusCode() != 200 {
-		return nil, fmt.Errorf("%d", resp.StatusCode())
+		return "", fmt.Errorf("%d", resp.StatusCode())
 	}
 
 	var info SuperSmsSMSDetail
 	err = json.Unmarshal(resp.Body(), &info)
 
 	if err != nil {
-		return nil, err
+		return "", err
 	}
 
-	return &info, nil
+	code = info.Code
+
+	return code, nil
+
+}
+
+func (f *SuperSms) ReleaseNumber(ID interface{}) (err error) {
+	// Make request
+	queryValues := url.Values{}
+	queryValues.Add("phone", ID.(string))
+
+	// Make request
+	_, err = f.makeGetRequest(
+		fmt.Sprintf("%s/releasenumber", f.Endpoint),
+		&queryValues,
+	)
+
+	return err
 
 }

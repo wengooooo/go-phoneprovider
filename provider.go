@@ -11,6 +11,12 @@ import (
 	"strings"
 )
 
+type IPhoneProvider interface {
+	GetNumber(map[string]interface{}) (int, string, string, error)
+	GetSms(ID int) (code string, err error)
+	ReleaseNumber(ID interface{}) (err error)
+}
+
 //go:embed countries.json
 var countries []byte
 
@@ -72,36 +78,6 @@ func (p *Provider) makeGetRequest(url string, queryValues *url.Values) (*Respons
 	response.size = int64(len(response.body))
 
 	return response, err
-}
-
-func (p *Provider) processResponse(resp *http.Response) (*NumberDetail, error) {
-
-	// Check status code
-	if resp.StatusCode != 200 {
-		return nil, fmt.Errorf("%s", resp.Status)
-	}
-
-	// Read request body
-	r, err := ioutil.ReadAll(resp.Body)
-
-	if err != nil {
-		resp.Body.Close()
-		return nil, err
-	}
-	resp.Body.Close()
-
-	// Unmarshal the body into a struct
-	var info NumberDetail
-	err = json.Unmarshal(r, &info)
-	if err != nil {
-		return nil, err
-	}
-
-	countryCode, phone := p.GetCountry(info.Phone)
-	info.Country = countryCode
-	info.Phone = phone
-
-	return &info, nil
 }
 
 func (p *Provider) GetCountry(phone string) (conuntryCode, newPhone string) {

@@ -45,9 +45,12 @@ func NewSmsMan(APIKey string) *SmsMan {
 	}
 }
 
-func (f *SmsMan) GetNumber(countryId, applicationId int) (*SmsManNumberDetail, error) {
+func (f *SmsMan) GetNumber(params map[string]interface{}) (ID int, countryCode, phoneNumber string, err error) {
 	// Check if any additional query values could be encapsulated
 	// Check if any additional query values could be encapsulated
+	countryId := params["countryId"].(int)
+	applicationId := params["applicationId"].(int)
+
 	queryValues := url.Values{}
 
 	queryValues.Add("country_id", strconv.Itoa(countryId))
@@ -61,27 +64,25 @@ func (f *SmsMan) GetNumber(countryId, applicationId int) (*SmsManNumberDetail, e
 
 	fmt.Println(resp.String())
 	if err != nil {
-		return nil, err
+		return 0, "", "", err
 	}
 
 	var info SmsManNumberDetail
 	err = json.Unmarshal(resp.Body(), &info)
 	if err != nil {
-		return nil, err
+		return 0, "", "", err
 	}
 
 	if info.ErrorCode != "" {
-		return nil, errors.New(info.ErrorMSG)
+		return 0, "", "", errors.New(info.ErrorMSG)
 	}
 
-	countryCode, phone := f.GetCountry(info.Phone)
-	info.CountryCode = countryCode
-	info.Phone = phone
+	countryCode, phoneNumber = f.GetCountry(info.Phone)
 
-	return &info, nil
+	return info.ID, countryCode, phoneNumber, nil
 }
 
-func (f *SmsMan) GetSms(ID int) (*SmsManSMSDetail, error) {
+func (f *SmsMan) GetSms(ID int) (code string, err error) {
 	// Make request
 	queryValues := url.Values{}
 	queryValues.Add("request_id", strconv.Itoa(ID))
@@ -93,14 +94,14 @@ func (f *SmsMan) GetSms(ID int) (*SmsManSMSDetail, error) {
 	)
 
 	if err != nil {
-		return nil, err
+		return "", err
 	}
 
 	var info SmsManSMSDetail
 	err = json.Unmarshal(resp.Body(), &info)
 
 	if err != nil {
-		return nil, err
+		return "", err
 	}
 
 	// Check status code
@@ -108,6 +109,20 @@ func (f *SmsMan) GetSms(ID int) (*SmsManSMSDetail, error) {
 	//	return nil, fmt.Errorf("%s", info.ErrorMSG)
 	//}
 
-	return &info, nil
+	return info.Code, nil
+}
 
+func (f *SmsMan) ReleaseNumber(ID interface{}) (err error) {
+	// Make request
+	queryValues := url.Values{}
+	queryValues.Add("status", "close")
+	queryValues.Add("request_id", strconv.Itoa(ID.(int)))
+
+	// Make request
+	_, err = f.makeGetRequest(
+		fmt.Sprintf("%s/set-status", f.Endpoint),
+		&queryValues,
+	)
+
+	return nil
 }
